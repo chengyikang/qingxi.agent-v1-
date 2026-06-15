@@ -1,22 +1,22 @@
-FROM python:3.11-slim
+FROM node:20-alpine AS base
 
+FROM base AS deps
 WORKDIR /app
+COPY package.json package-lock.json* ./
+RUN npm install --registry=https://registry.npmmirror.com
 
-# 安装系统依赖
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    gcc libpq-dev \
-    && rm -rf /var/lib/apt/lists/*
-
-# 安装 Python 依赖
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-
-# 复制代码
+FROM base AS builder
+WORKDIR /app
+COPY --from=deps /app/node_modules ./node_modules
 COPY . .
+RUN npm run build
 
-# 创建 chroma 数据目录
-RUN mkdir -p /app/chroma_data
+FROM base AS runner
+WORKDIR /app
+ENV NODE_ENV=production
+COPY --from=builder /app/.next/standalone ./
+COPY --from=builder /app/.next/static ./.next/static
 
-EXPOSE 8000
-
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+EXPOSE 3000
+ENV PORT=3000
+CMD ["node", "server.js"]
