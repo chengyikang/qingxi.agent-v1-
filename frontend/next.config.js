@@ -1,6 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // 允许跨域请求到后端API
+  output: 'standalone',
   async rewrites() {
     return [
       {
