@@ -19,6 +19,14 @@ export function useUser(): UseUserReturn {
    * 验证用户身份
    */
   const validateUser = useCallback(async (id: string) => {
+    // 防止无效ID
+    if (!id || id === 'undefined' || id === 'null') {
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem(STORAGE_KEY)
+      }
+      return false
+    }
+
     try {
       const profile = await getUserProfile(id)
       setUser(profile)
@@ -43,6 +51,11 @@ export function useUser(): UseUserReturn {
       setError(null)
       
       const result = await createUser()
+      
+      // 保护：确保 user_id 有效
+      if (!result.user_id || result.user_id === 'undefined') {
+        throw new Error('创建用户返回无效ID')
+      }
       
       // 保存到本地存储
       if (typeof window !== 'undefined') {
@@ -73,7 +86,7 @@ export function useUser(): UseUserReturn {
 
       const storedUserId = localStorage.getItem(STORAGE_KEY)
       
-      if (storedUserId) {
+      if (storedUserId && storedUserId !== 'undefined' && storedUserId !== 'null') {
         // 验证已有用户
         const isValid = await validateUser(storedUserId)
         if (!isValid) {
@@ -81,7 +94,8 @@ export function useUser(): UseUserReturn {
           await handleCreateUser()
         }
       } else {
-        // 没有存储的用户ID，创建新用户
+        // 没有存储的用户ID，清除脏数据后创建新用户
+        localStorage.removeItem(STORAGE_KEY)
         await handleCreateUser()
       }
     }
