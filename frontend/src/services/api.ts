@@ -101,6 +101,21 @@ function getRelationshipStage(score: number): RelationshipStage {
   return 'stranger'
 }
 
+/**
+ * 解析后端统一响应格式
+ * 后端返回 { ok: true/false, data: {...} } 或 { ok: true/false, error: "..." }
+ */
+function parseResponse<T>(result: any): T {
+  if (result.ok && result.data) {
+    return result.data as T
+  }
+  // 兼容不带包装的响应
+  if (!result.ok && result.ok !== undefined) {
+    throw new Error(result.error || '请求失败')
+  }
+  return result as T
+}
+
 // ==================== API 请求函数 ====================
 
 /**
@@ -122,7 +137,9 @@ export async function createUser(): Promise<{ user_id: string; nickname: string 
     throw new Error('创建用户失败')
   }
 
-  return response.json()
+  const result = await response.json()
+  const data = parseResponse<{ user_id: string; nickname: string }>(result)
+  return data
 }
 
 /**
@@ -144,7 +161,14 @@ export async function getUserProfile(userId: string): Promise<User> {
     throw new Error('获取用户资料失败')
   }
 
-  return response.json()
+  const result = await response.json()
+  const data = parseResponse<{ user_id: string; nickname: string; created_at: string; last_active_at: string }>(result)
+  return {
+    id: data.user_id,
+    nickname: data.nickname,
+    created_at: data.created_at,
+    last_active_at: data.last_active_at
+  }
 }
 
 /**
@@ -209,7 +233,8 @@ export async function sendMessage(
     throw new Error('发送消息失败')
   }
 
-  return response.json()
+  const result = await response.json()
+  return parseResponse<SendMessageResponse>(result)
 }
 
 /**
@@ -226,7 +251,10 @@ export async function getChatHistory(userId: string, limit = 50): Promise<ChatMe
     throw new Error('获取聊天历史失败')
   }
 
-  return response.json()
+  const result = await response.json()
+  // 聊天历史可能是数组或包装在data里
+  if (Array.isArray(result)) return result
+  return parseResponse<ChatMessage[]>(result)
 }
 
 /**
@@ -247,7 +275,13 @@ export async function getTrust(userId: string): Promise<TrustProfile> {
     throw new Error('获取信任信息失败')
   }
 
-  return response.json()
+  const result = await response.json()
+  const data = parseResponse<{ user_id: string; trust_score: number; relationship_stage: string }>(result)
+  return {
+    user_id: data.user_id,
+    trust_score: data.trust_score,
+    relationship_stage: data.relationship_stage as RelationshipStage
+  }
 }
 
 /**
@@ -286,7 +320,9 @@ export async function getMemories(userId: string): Promise<Memory[]> {
     throw new Error('获取记忆失败')
   }
 
-  return response.json()
+  const result = await response.json()
+  if (Array.isArray(result)) return result
+  return parseResponse<Memory[]>(result)
 }
 
 /**
@@ -309,7 +345,9 @@ export async function getEmotions(userId: string, limit = 10): Promise<EmotionLo
     throw new Error('获取情绪历史失败')
   }
 
-  return response.json()
+  const result = await response.json()
+  if (Array.isArray(result)) return result
+  return parseResponse<EmotionLog[]>(result)
 }
 
 /**
@@ -333,7 +371,8 @@ export async function getDashboard(userId: string): Promise<DashboardData> {
     throw new Error('获取Dashboard数据失败')
   }
 
-  return response.json()
+  const result = await response.json()
+  return parseResponse<DashboardData>(result)
 }
 
 /**
@@ -355,5 +394,6 @@ export async function getAnalytics(userId: string): Promise<AnalyticsData> {
     throw new Error('获取分析数据失败')
   }
 
-  return response.json()
+  const result = await response.json()
+  return parseResponse<AnalyticsData>(result)
 }
