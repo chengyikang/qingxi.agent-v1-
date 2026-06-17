@@ -3,7 +3,7 @@
  * 处理用户创建、验证和状态管理
  */
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { User, UseUserReturn } from '@/types'
 import { createUser, getUserProfile } from '@/services/api'
 
@@ -14,70 +14,15 @@ export function useUser(): UseUserReturn {
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  
+  // 防止重复初始化
+  const initRef = useRef(false)
 
-  /**
-   * 验证用户身份
-   */
-  const validateUser = useCallback(async (id: string) => {
-    // 防止无效ID
-    if (!id || id === 'undefined' || id === 'null') {
-      if (typeof window !== 'undefined') {
-        localStorage.removeItem(STORAGE_KEY)
-      }
-      return false
-    }
-
-    try {
-      const profile = await getUserProfile(id)
-      setUser(profile)
-      setUserId(id)
-      return true
-    } catch (err) {
-      console.error('验证用户失败:', err)
-      // 如果验证失败，清除本地存储
-      if (typeof window !== 'undefined') {
-        localStorage.removeItem(STORAGE_KEY)
-      }
-      return false
-    }
-  }, [])
-
-  /**
-   * 创建新用户
-   */
-  const handleCreateUser = useCallback(async () => {
-    try {
-      setLoading(true)
-      setError(null)
-      
-      const result = await createUser()
-      
-      // 保护：确保 user_id 有效
-      if (!result.user_id || result.user_id === 'undefined') {
-        throw new Error('创建用户返回无效ID')
-      }
-      
-      // 保存到本地存储
-      if (typeof window !== 'undefined') {
-        localStorage.setItem(STORAGE_KEY, result.user_id)
-      }
-      
-      // 获取完整用户资料
-      const profile = await getUserProfile(result.user_id)
-      setUser(profile)
-      setUserId(result.user_id)
-    } catch (err) {
-      console.error('创建用户失败:', err)
-      setError('无法创建用户，请刷新页面重试')
-    } finally {
-      setLoading(false)
-    }
-  }, [])
-
-  /**
-   * 初始化：检查本地存储或创建新用户
-   */
   useEffect(() => {
+    // 防止 React StrictMode 双重执行
+    if (initRef.current) return
+    initRef.current = true
+
     const initUser = async () => {
       if (typeof window === 'undefined') {
         setLoading(false)
@@ -86,22 +31,49 @@ export function useUser(): UseUserReturn {
 
       const storedUserId = localStorage.getItem(STORAGE_KEY)
       
+      // 有有效存储 ID，先验证
       if (storedUserId && storedUserId !== 'undefined' && storedUserId !== 'null') {
-        // 验证已有用户
-        const isValid = await validateUser(storedUserId)
-        if (!isValid) {
-          // 验证失败，创建新用户
-          await handleCreateUser()
+        try {
+          const profile = await getUserProfile(storedUserId)
+          setUser(profile)
+          setUserId(storedUserId)
+          setLoading(false)
+          return
+        } catch (err) {
+          console.error('验证用户失败，将创建新用户:', err)
+          localStorage.removeItem(STORAGE_KEY)
         }
       } else {
-        // 没有存储的用户ID，清除脏数据后创建新用户
         localStorage.removeItem(STORAGE_KEY)
-        await handleCreateUser()
+      }
+
+      // 创建新用户
+      try {
+        setLoading(true)
+        setError(null)
+        
+        const result = await createUser()
+        
+        if (!result.user_id || result.user_id === 'undefined') {
+          throw new Error('创建用户返回无效ID')
+        }
+        
+        localStorage.setItem(STORAGE_KEY, result.user_id)
+        
+        const profile = await getUserProfile(result.user_id)
+        setUser(profile)
+        setUserId(result.user_id)
+      } catch (err) {
+        console.error('创建用户失败:', err)
+        setError('无法创建用户，请刷新页面重试')
+        initRef.current = false // 允许重试
+      } finally {
+        setLoading(false)
       }
     }
 
     initUser()
-  }, [validateUser, handleCreateUser])
+  }, [])
 
   return {
     userId,
