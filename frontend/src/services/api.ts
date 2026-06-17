@@ -28,16 +28,10 @@ let mockMessages: ChatMessage[] = []
 let mockTrustHistory: { date: string; score: number }[] = []
 let mockEmotionHistory: { date: string; emotion: string }[] = []
 
-/**
- * 初始化Mock数据
- */
 function initMockData(userId: string) {
   if (mockMessages.length > 0) return
-  
   mockUserId = userId
   const now = new Date()
-  
-  // 初始化信任历史
   for (let i = 6; i >= 0; i--) {
     const date = new Date(now)
     date.setDate(date.getDate() - i)
@@ -46,8 +40,6 @@ function initMockData(userId: string) {
       score: 100 + Math.floor(i * 15) + Math.floor(Math.random() * 10)
     })
   }
-  
-  // 初始化情绪历史
   const emotions = ['calm', 'happy', 'thoughtful', 'calm', 'happy', 'neutral', 'calm']
   for (let i = 6; i >= 0; i--) {
     const date = new Date(now)
@@ -57,8 +49,6 @@ function initMockData(userId: string) {
       emotion: emotions[6 - i]
     })
   }
-  
-  // 初始化历史消息
   mockMessages = [
     {
       id: '1',
@@ -84,16 +74,10 @@ function initMockData(userId: string) {
   ]
 }
 
-/**
- * 生成唯一ID
- */
 function generateId(): string {
   return Date.now().toString(36) + Math.random().toString(36).substr(2)
 }
 
-/**
- * 获取关系阶段
- */
 function getRelationshipStage(score: number): RelationshipStage {
   if (score >= 750) return 'confidant'
   if (score >= 500) return 'friend'
@@ -102,16 +86,11 @@ function getRelationshipStage(score: number): RelationshipStage {
 }
 
 /**
- * 解析后端统一响应格式
- * 后端返回 { ok: true/false, data: {...} } 或 { ok: true/false, error: "..." }
+ * 解析后端统一响应 { ok, data }
  */
-function parseResponse<T>(result: any): T {
-  if (result.ok && result.data) {
+function extractData<T>(result: any): T {
+  if (result && result.ok && result.data !== undefined) {
     return result.data as T
-  }
-  // 兼容不带包装的响应
-  if (!result.ok && result.ok !== undefined) {
-    throw new Error(result.error || '请求失败')
   }
   return result as T
 }
@@ -120,6 +99,7 @@ function parseResponse<T>(result: any): T {
 
 /**
  * 创建新用户
+ * 后端返回: { ok: true, data: { user_id, nickname, created_at } }
  */
 export async function createUser(): Promise<{ user_id: string; nickname: string }> {
   if (USE_MOCK) {
@@ -138,12 +118,12 @@ export async function createUser(): Promise<{ user_id: string; nickname: string 
   }
 
   const result = await response.json()
-  const data = parseResponse<{ user_id: string; nickname: string }>(result)
-  return data
+  return extractData<{ user_id: string; nickname: string }>(result)
 }
 
 /**
  * 获取用户资料
+ * 后端返回: { ok: true, data: { user_id, nickname, created_at, last_active_at } }
  */
 export async function getUserProfile(userId: string): Promise<User> {
   if (USE_MOCK) {
@@ -162,7 +142,7 @@ export async function getUserProfile(userId: string): Promise<User> {
   }
 
   const result = await response.json()
-  const data = parseResponse<{ user_id: string; nickname: string; created_at: string; last_active_at: string }>(result)
+  const data = extractData<{ user_id: string; nickname: string; created_at: string; last_active_at: string }>(result)
   return {
     id: data.user_id,
     nickname: data.nickname,
@@ -173,13 +153,13 @@ export async function getUserProfile(userId: string): Promise<User> {
 
 /**
  * 发送聊天消息
+ * 后端返回: { ok: true, data: { response, emotion, trust_update, ... } }
  */
 export async function sendMessage(
   userId: string,
   message: string
 ): Promise<SendMessageResponse> {
   if (USE_MOCK) {
-    // 模拟回复
     const responses = [
       '嗯，我听到了。',
       '这样啊，我理解你的感受。',
@@ -189,32 +169,25 @@ export async function sendMessage(
       '你的想法很有意思。',
       '我会记住这些的。',
     ]
-    
     const randomResponse = responses[Math.floor(Math.random() * responses.length)]
-    
-    // 模拟信任变化
     const trustChange = Math.floor(Math.random() * 5) + 1
     mockTrustScore = Math.min(1000, mockTrustScore + trustChange)
-    
-    // 添加新消息
-    const userMessage: ChatMessage = {
+    const userMsg: ChatMessage = {
       id: generateId(),
       user_id: userId,
       role: 'user',
       content: message,
       created_at: new Date().toISOString()
     }
-    mockMessages.push(userMessage)
-    
-    const assistantMessage: ChatMessage = {
+    mockMessages.push(userMsg)
+    const assistantMsg: ChatMessage = {
       id: generateId(),
       user_id: userId,
       role: 'assistant',
       content: randomResponse,
       created_at: new Date().toISOString()
     }
-    mockMessages.push(assistantMessage)
-    
+    mockMessages.push(assistantMsg)
     return {
       reply: randomResponse,
       trust_change: trustChange,
@@ -234,11 +207,20 @@ export async function sendMessage(
   }
 
   const result = await response.json()
-  return parseResponse<SendMessageResponse>(result)
+  const data = extractData<any>(result)
+
+  // 后端字段是 response，前端用 reply
+  return {
+    reply: data.response || data.reply || '',
+    trust_change: data.trust_update?.growth || 0,
+    emotion: data.emotion?.emotion || 'calm',
+    confidence: data.emotion?.confidence || 0.5
+  }
 }
 
 /**
  * 获取聊天历史
+ * 后端返回: { ok: true, data: { user_id, histories: [...], total } }
  */
 export async function getChatHistory(userId: string, limit = 50): Promise<ChatMessage[]> {
   if (USE_MOCK) {
@@ -252,9 +234,10 @@ export async function getChatHistory(userId: string, limit = 50): Promise<ChatMe
   }
 
   const result = await response.json()
-  // 聊天历史可能是数组或包装在data里
-  if (Array.isArray(result)) return result
-  return parseResponse<ChatMessage[]>(result)
+  const data = extractData<any>(result)
+  // 后端返回 histories 字段
+  const histories = data.histories || data
+  return Array.isArray(histories) ? histories : []
 }
 
 /**
@@ -276,11 +259,11 @@ export async function getTrust(userId: string): Promise<TrustProfile> {
   }
 
   const result = await response.json()
-  const data = parseResponse<{ user_id: string; trust_score: number; relationship_stage: string }>(result)
+  const data = extractData<any>(result)
   return {
-    user_id: data.user_id,
-    trust_score: data.trust_score,
-    relationship_stage: data.relationship_stage as RelationshipStage
+    user_id: data.user_id || userId,
+    trust_score: data.trust_score || 0,
+    relationship_stage: (data.relationship_stage || 'stranger') as RelationshipStage
   }
 }
 
@@ -321,8 +304,9 @@ export async function getMemories(userId: string): Promise<Memory[]> {
   }
 
   const result = await response.json()
-  if (Array.isArray(result)) return result
-  return parseResponse<Memory[]>(result)
+  const data = extractData<any>(result)
+  if (Array.isArray(data)) return data
+  return Array.isArray(result) ? result : []
 }
 
 /**
@@ -346,8 +330,9 @@ export async function getEmotions(userId: string, limit = 10): Promise<EmotionLo
   }
 
   const result = await response.json()
-  if (Array.isArray(result)) return result
-  return parseResponse<EmotionLog[]>(result)
+  const data = extractData<any>(result)
+  if (Array.isArray(data)) return data
+  return Array.isArray(result) ? result : []
 }
 
 /**
@@ -372,7 +357,7 @@ export async function getDashboard(userId: string): Promise<DashboardData> {
   }
 
   const result = await response.json()
-  return parseResponse<DashboardData>(result)
+  return extractData<DashboardData>(result)
 }
 
 /**
@@ -395,5 +380,5 @@ export async function getAnalytics(userId: string): Promise<AnalyticsData> {
   }
 
   const result = await response.json()
-  return parseResponse<AnalyticsData>(result)
+  return extractData<AnalyticsData>(result)
 }
