@@ -27,9 +27,11 @@ export function useChat(userId: string | null): UseChatReturn {
       setError(null)
       
       const history = await getChatHistory(userId, 50)
-      setMessages(history)
+      // 保护：确保 history 是数组
+      setMessages(Array.isArray(history) ? history : [])
     } catch (err) {
       console.error('加载历史记录失败:', err)
+      setMessages([])
       setError('加载历史记录失败')
     } finally {
       setLoading(false)
