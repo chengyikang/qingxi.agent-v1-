@@ -1,24 +1,59 @@
 """
 LLM 服务
-封装 OpenAI API 调用
+封装多提供商 LLM API 调用（基于 OpenAI 兼容协议）
 """
 import json
+import logging
 from typing import List, Dict, Optional, Any
+
 from openai import AsyncOpenAI, OpenAIError
 
 from config import settings
 
+logger = logging.getLogger(__name__)
+
 
 class LLMService:
-    """LLM 服务类"""
+    """LLM 服务类 - 支持多提供商"""
     
     def __init__(self):
-        """初始化 OpenAI 客户端"""
-        self.client = AsyncOpenAI(
-            api_key=settings.OPENAI_API_KEY,
-            base_url=settings.OPENAI_BASE_URL
+        """延迟初始化，不立即创建客户端"""
+        self._client: Optional[AsyncOpenAI] = None
+        self._model: str = ""
+        self._provider: str = ""
+        self._initialized: bool = False
+    
+    def _ensure_init(self):
+        """确保客户端已初始化（延迟到首次调用时）"""
+        if self._initialized:
+            return
+        
+        config = settings.get_llm_config()
+        api_key = config["api_key"]
+        base_url = config["base_url"]
+        self._model = config["model"]
+        self._provider = config["provider"]
+        
+        if not api_key:
+            logger.warning(
+                f"LLM API Key 未配置！请在 .env 或环境变量中设置 LLM_API_KEY。"
+                f"当前提供商: {self._provider}"
+            )
+            self._initialized = True
+            return
+        
+        self._client = AsyncOpenAI(
+            api_key=api_key,
+            base_url=base_url if base_url else None,
         )
-        self.model = settings.OPENAI_MODEL
+        self._initialized = True
+        logger.info(f"LLM 服务已初始化 - 提供商: {self._provider}, 模型: {self._model}")
+    
+    @property
+    def is_ready(self) -> bool:
+        """检查 LLM 服务是否可用"""
+        self._ensure_init()
+        return self._client is not None
     
     async def chat_completion(
         self,
@@ -30,26 +65,34 @@ class LLMService:
         调用聊天完成接口
         
         Args:
-            messages: 消息列表，格式为 [{"role": "user/assistant/system", "content": "..."}]
-            temperature: 温度参数，控制随机性
+            messages: 消息列表
+            temperature: 温度参数
             max_tokens: 最大令牌数
             
         Returns:
             模型的回复文本
         """
+        self._ensure_init()
+        
+        if not self._client:
+            raise Exception(
+                "LLM 服务未就绪，请配置 LLM_API_KEY。"
+                f"当前提供商: {self._provider}，请在 .env 或 docker-compose.yml 中设置。"
+            )
+        
         try:
             kwargs = {
-                "model": self.model,
+                "model": self._model,
                 "messages": messages,
                 "temperature": temperature
             }
             if max_tokens:
                 kwargs["max_tokens"] = max_tokens
             
-            response = await self.client.chat.completions.create(**kwargs)
+            response = await self._client.chat.completions.create(**kwargs)
             return response.choices[0].message.content or ""
         except OpenAIError as e:
-            raise Exception(f"LLM API 调用失败: {str(e)}")
+            raise Exception(f"LLM API 调用失败 ({self._provider}): {str(e)}")
     
     async def structured_completion(
         self,
@@ -66,16 +109,24 @@ class LLMService:
         Returns:
             解析后的结构化数据
         """
+        self._ensure_init()
+        
+        if not self._client:
+            raise Exception(
+                "LLM 服务未就绪，请配置 LLM_API_KEY。"
+                f"当前提供商: {self._provider}"
+            )
+        
         try:
             kwargs = {
-                "model": self.model,
+                "model": self._model,
                 "messages": messages,
-                "temperature": 0.3  # 结构化输出使用较低温度
+                "temperature": 0.3
             }
             if response_format:
                 kwargs["response_format"] = response_format
             
-            response = await self.client.chat.completions.create(**kwargs)
+            response = await self._client.chat.completions.create(**kwargs)
             content = response.choices[0].message.content or "{}"
             
             # 尝试解析 JSON
@@ -88,7 +139,7 @@ class LLMService:
             
             return json.loads(content.strip())
         except (OpenAIError, json.JSONDecodeError) as e:
-            raise Exception(f"结构化输出解析失败: {str(e)}")
+            raise Exception(f"结构化输出解析失败 ({self._provider}): {str(e)}")
     
     async def analysis(
         self,
@@ -115,5 +166,5 @@ class LLMService:
         return await self.chat_completion(messages, temperature=temperature)
 
 
-# 全局 LLM 服务实例
+# 全局 LLM 服务实例（延迟初始化，不会因密钥为空而崩溃）
 llm_service = LLMService()
