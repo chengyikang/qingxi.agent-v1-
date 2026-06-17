@@ -1,11 +1,6 @@
 'use client'
 
-/**
- * 聊天主页面
- * 包含聊天界面和信任指示器
- */
-
-import React, { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect, useCallback, useRef } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useUser } from '@/hooks/useUser'
@@ -18,43 +13,39 @@ import TrustIndicator from '@/components/TrustIndicator'
 export default function ChatPage() {
   const pathname = usePathname()
   const isChatPage = pathname === '/'
-  
+
   const { userId, user, loading: userLoading, error: userError } = useUser()
   const { messages, loading: chatLoading, sending, error: chatError, sendMessage, loadHistory } = useChat(userId)
-  
+
   const [trustProfile, setTrustProfile] = useState<TrustProfile | null>(null)
   const [previousScore, setPreviousScore] = useState<number | undefined>(undefined)
-  const [showTrustPanel, setShowTrustPanel] = useState(true) // 移动端信任面板默认隐藏
+  const [showTrustPanel, setShowTrustPanel] = useState(true)
 
-  // 加载信任信息
+  const trustProfileRef = useRef<TrustProfile | null>(null)
+
   const loadTrust = useCallback(async () => {
     if (!userId) return
-    
     try {
       const profile = await getTrust(userId)
-      // 保存当前分数作为"之前的分数"
-      if (trustProfile) {
-        setPreviousScore(trustProfile.trust_score)
+      if (trustProfileRef.current) {
+        setPreviousScore(trustProfileRef.current.trust_score)
       }
+      trustProfileRef.current = profile
       setTrustProfile(profile)
     } catch (error) {
       console.error('加载信任信息失败:', error)
     }
-  }, [userId, trustProfile])
+  }, [userId])
 
-  // 初始化加载
   useEffect(() => {
     if (userId) {
       loadHistory()
       loadTrust()
-      
-      // 每30秒更新一次信任信息
       const interval = setInterval(loadTrust, 30000)
       return () => clearInterval(interval)
     }
   }, [userId, loadHistory, loadTrust])
 
-  // 加载中状态
   if (userLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -66,7 +57,6 @@ export default function ChatPage() {
     )
   }
 
-  // 错误状态
   if (userError) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -88,11 +78,9 @@ export default function ChatPage() {
 
   return (
     <div className="min-h-screen flex flex-col">
-      {/* 顶部导航栏 */}
       <header className="sticky top-0 z-50 glass border-b border-qx-bg-secondary">
         <div className="max-w-6xl mx-auto px-4">
           <div className="flex items-center justify-between h-16">
-            {/* Logo/标题 */}
             <div className="flex items-center gap-3">
               <span className="text-2xl">🌙</span>
               <div>
@@ -109,8 +97,6 @@ export default function ChatPage() {
                 )}
               </div>
             </div>
-            
-            {/* 导航链接 */}
             <nav className="flex items-center gap-2">
               <Link
                 href="/"
@@ -137,9 +123,7 @@ export default function ChatPage() {
         </div>
       </header>
 
-      {/* 主内容区域 */}
       <main className="flex-1 flex flex-col lg:flex-row max-w-6xl mx-auto w-full">
-        {/* 聊天区域 */}
         <div className={`flex-1 flex flex-col ${isChatPage ? 'block' : 'hidden lg:flex'}`}>
           {isChatPage && (
             <div className="flex-1 flex flex-col min-h-0">
@@ -160,10 +144,8 @@ export default function ChatPage() {
           )}
         </div>
 
-        {/* 信任指示器区域 - 桌面端右侧 / 移动端底部 */}
         {isChatPage && (
           <>
-            {/* 桌面端右侧 */}
             <aside className="hidden lg:block w-80 border-l border-qx-bg-secondary p-6">
               <div className="sticky top-24">
                 <h2 className="text-sm font-medium text-qx-text-secondary mb-4">关系状态</h2>
@@ -173,8 +155,6 @@ export default function ChatPage() {
                     previousScore={previousScore}
                   />
                 )}
-                
-                {/* 提示文字 */}
                 <div className="mt-6 p-4 bg-qx-bg-secondary rounded-xl">
                   <div className="text-xs text-qx-text-muted leading-relaxed">
                     <p className="mb-2">💡 QingXi 是一个慢热型的陪伴者。</p>
@@ -184,21 +164,16 @@ export default function ChatPage() {
               </div>
             </aside>
 
-            {/* 移动端底部折叠面板 */}
             <div className="lg:hidden">
-              {/* 展开/收起按钮 */}
               <button
                 onClick={() => setShowTrustPanel(!showTrustPanel)}
-                className="w-full p-3 bg-qx-bg-secondary border-t border-qx-bg-tertiary 
-                           flex items-center justify-between text-sm"
+                className="w-full p-3 bg-qx-bg-secondary border-t border-qx-bg-tertiary flex items-center justify-between text-sm"
               >
                 <span className="text-qx-text-muted">查看关系状态</span>
                 <span className={`transition-transform ${showTrustPanel ? 'rotate-180' : ''}`}>
                   ▲
                 </span>
               </button>
-              
-              {/* 信任面板内容 */}
               {showTrustPanel && trustProfile && (
                 <div className="p-4 bg-qx-bg-secondary border-t border-qx-bg-tertiary animate-slide-up">
                   <TrustIndicator
@@ -212,7 +187,6 @@ export default function ChatPage() {
         )}
       </main>
 
-      {/* 底部装饰 */}
       <footer className="py-6 text-center">
         <div className="text-xs text-qx-text-muted/50">
           <span className="opacity-50">QingXi · 慢热型陪伴 Agent</span>
