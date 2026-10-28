@@ -1,0 +1,65 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: qingxi-db
+    environment:
+      POSTGRES_USER: qingxi
+      POSTGRES_PASSWORD: qingxi_dev_2026
+      POSTGRES_DB: qingxi
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U qingxi"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: qingxi-backend
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://qingxi:qingxi_dev_2026@db:5432/qingxi
+      # ===== LLM 多提供商配置 =====
+      # 支持: openai / deepseek / moonshot / zhipu / qwen / siliconflow / custom
+      - LLM_PROVIDER=${LLM_PROVIDER:-openai}
+      # 通用 API Key（推荐使用，兼容所有提供商）
+      - LLM_API_KEY=${LLM_API_KEY:-${OPENAI_API_KEY:-}}
+      # 可选：覆盖提供商默认 Base URL（仅 custom 或特殊场景需要）
+      - LLM_BASE_URL=${LLM_BASE_URL:-}
+      # 可选：覆盖提供商默认模型（不填则用各提供商内置默认）
+      - LLM_MODEL=${LLM_MODEL:-}
+      # ===== 以下为向后兼容字段，LLM_API_KEY 已覆盖则无需设置 =====
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OPENAI_MODEL=${OPENAI_MODEL:-}
+      - CHROMA_PERSIST_DIR=/app/chroma_data
+      - CORS_ORIGINS=http://localhost:3000
+    volumes:
+      - chroma_data:/app/chroma_data
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: qingxi-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
+      - NEXT_PUBLIC_USE_MOCK=false
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  chroma_data:
